@@ -47,7 +47,7 @@ add_subdirectory(PlaceSemiLMPatches)
 add_subdirectory(ProjectSemiLM)
 add_subdirectory(PseudoLMGenerator)
 add_subdirectory(SegmentEndocranium)
-
+add_subdirectory(UberonTerminologyImporter)
 ## NEXT_MODULE
 
 #-----------------------------------------------------------------------------
