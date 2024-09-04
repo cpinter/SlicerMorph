@@ -118,7 +118,7 @@ class UberonTerminologyImporterWidget(ScriptedLoadableModuleWidget, VTKObservati
         """Called each time the user opens a different module."""
         # Do not react to parameter node changes (GUI will be updated when the user enters into the module)
         if self._parameterNode:
-            self._parameterNode.disconnectGui(self._parameterNodeGuiTag)
+            # self._parameterNode.disconnectGui(self._parameterNodeGuiTag)  #TODO: The wrapper cannot process the base class
             self._parameterNodeGuiTag = None
             self.removeObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._checkCanApply)
 
@@ -229,6 +229,7 @@ class UberonTerminologyImporterLogic(ScriptedLoadableModuleLogic):
 
         # Constants
         self.parameterName_uberonJsonPath = 'UberonJsonPath'
+        self.containmentPredicateIDs = ['is_a', 'http://purl.obolibrary.org/obo/BFO_0000050']  # IsA and PartOf predicates
 
         # Loaded ontology variables
         self.loadedJson = None
@@ -252,28 +253,54 @@ class UberonTerminologyImporterLogic(ScriptedLoadableModuleLogic):
             self.loadedJson = json.loads(fh.read())
             self.loadedJsonFlatList = list(self.flatListFromDict(self.loadedJson))
 
-        # Find "subdivision of skeleton"
-        rootNodeFlatList = None
-        rootElementLabel = 'subdivision of skeletal system'
-        for elem in self.loadedJsonFlatList:
-            if elem[-1] == rootElementLabel:
-                rootNodeFlatList = elem  # Should be: # ['graphs', [0], 'nodes', [50], 'lbl', 'subdivision of skeletal system']
-                logging.info(f'Found element {rootElementLabel}, node index {rootNodeFlatList[4]}')
-                break
-        if rootNodeFlatList is None:
-            raise RuntimeError(f'Failed to find node with label {rootElementLabel} in the ontology')
-        rootNodeJsonElement = self.getJsonElementFromFlatElement(rootNodeFlatList, 4)
+        # Find root node (parent the direct children of which will be added as categories)
+        rootNodeLabel = 'subdivision of skeleton'  #TODO: If we want to give more options to the user we can expose this on the UI
+        rootNodeListItem = self.findValueInFlatList(rootNodeLabel)
+        rootNodeJsonElement = self.getJsonElementFromFlatElement(rootNodeListItem, 4)
         rootNodeID = rootNodeJsonElement['id']
-        logging.error(f'ZZZ rootNodeID: {rootNodeID}')
 
-        # # Collect direct children (sub-categories) that are not leaves
-        # for elem in self.loadedJsonFlatList:
-        #     if elem[2] == 'edges' and elem[4] == 'obj':
+        # Collect direct children (sub-categories) that are not leaves
+        childNodeIDs = []
+        for elem in self.loadedJsonFlatList:
+            if elem[2] == 'edges' and elem[4] == 'obj' and elem[5] == rootNodeID:
+                edge = self.getJsonElementFromFlatElement(elem, 4)
+                if edge['pred'] in self.containmentPredicateIDs:
+                    childNodeIDs.append(edge['sub'])
 
-        # For each subcategory
-        #   Add terminology category with the nodes inside as types in the category
+        # Initialize terminology JSON dictionary to be filled with categories and types
+        terminologyJson = {}
+        terminologyJson["SegmentationCategoryTypeContextName"] = rootNodeLabel
+        terminologyJson["@schema"] = "https://raw.githubusercontent.com/qiicr/dcmqi/master/doc/schemas/segment-context-schema.json#"
+        segmentationCodes = {}
+        terminologyJson["SegmentationCodes"] = segmentationCodes
+        categories = []
+        segmentationCodes["Category"] = categories
+
+        # For each child, add terminology category for with the nodes inside as types in the category
+        usedNodeIDs = []
+        for childNodeID in childNodeIDs:
+            # Get child JSON element
+            childListItem = self.findValueInFlatList(childNodeID)
+            nodeJsonElement = self.getJsonElementFromFlatElement(childListItem, 4)
+            childLabel = nodeJsonElement['lbl']
+            logging.info(f'Adding category for child with label {childLabel}')
+
+            # Add new category
+            newCategory = {}
+            newCategory["CodeMeaning"] = childLabel
+            newCategory["CodingSchemeDesignator"] = 'Uberon'  #TODO:
+            newCategory["CodeValue"] = childNodeID
+            newTypes = []
+            newCategory["Type"] = newTypes
+
+            # Get all children of the category node in Uberon
+            #TODO:
+
         # Collect all nodes that are not added yet
+        #TODO:
+
         # Add terminology category "Other" with these nodes as types
+        #TODO:
 
     @staticmethod
     def flatListFromDict(dictionary, previous=None):
@@ -296,6 +323,22 @@ class UberonTerminologyImporterLogic(ScriptedLoadableModuleLogic):
         else:
             yield previous + [dictionary]
 
+    def findValueInFlatList(self, value):
+        """
+        Find item in flat list with the last value equal to the given value.
+        :param str value: Value to look for. E.g. 'subdivision of skeletal system'
+        :return list: Flat list item having the given value, e.g. ['graphs', [0], 'nodes', [50], 'lbl', 'subdivision of skeletal system']
+        """
+        foundNodeFlatListElem = None
+        for elem in self.loadedJsonFlatList:
+            if elem[-1] == value:
+                foundNodeFlatListElem = elem
+                # logging.info(f'Found element {value}, node index {foundNodeFlatListElem[4]}')
+                break
+        if foundNodeFlatListElem is None:
+            raise RuntimeError(f'Failed to find item with last value {value} in the ontology')
+        return foundNodeFlatListElem
+
     def getJsonElementFromFlatElement(self, flatElement, depth=99999):
         """
         Get sub-dictionary from loaded JSON ontology specified by the arguments.
@@ -316,7 +359,7 @@ class UberonTerminologyImporterLogic(ScriptedLoadableModuleLogic):
             currentJson = currentJson[elem]
         return currentJson
 
-    def getChildrenForNode(self, uberonNodeID):
+    def getChildrenForNode(self, uberonNodeID, recursive=True):
         """
         Get children of the specified uberon node in the loaded uberon dictionary.
         :param string uberonNodeID: Uberon node ID, e.g. "http://purl.obolibrary.org/obo/UBERON_0001739"
