@@ -1,6 +1,8 @@
 import json
 import logging
 import os
+import pathlib
+import time
 from typing import Annotated, Optional
 
 import vtk
@@ -34,26 +36,23 @@ class UberonTerminologyImporter(ScriptedLoadableModule):
         self.parent.categories = [translate("qSlicerAbstractCoreModule", "SlicerMorph.SlicerMorph Utilities")]
         self.parent.dependencies = ['Terminologies']
         self.parent.contributors = ["Csaba Pinter (EBATINCA S.L.)"]
-        # TODO: update with short description of the module and a link to online module documentation
-        # _() function marks text as translatable to other languages
         self.parent.helpText = _("""This module imports an Uberon JSON ontology as a new terminology context.""")
-        # TODO: replace with organization, grant and thanks
         self.parent.acknowledgementText = _("""
-This file was originally developed by Csaba Pinter, EBATINCA, and was funded by TODO:.
+This file was originally developed by Csaba Pinter, EBATINCA, and was funded by the MorphoCloud project.
 """)
 
 
 #
 # UberonTerminologyImporterParameterNode
 #
-# @parameterNodeWrapper  #TODO: The wrapper cannot process the base class
-class UberonTerminologyImporterParameterNode(slicer.vtkMRMLScriptedModuleNode):
+@parameterNodeWrapper
+class UberonTerminologyImporterParameterNode():
     """
     The parameters needed by module.
 
     inputFilePath - The JSON file to import
     """
-    # inputFilePath: str  #TODO: ctkPathLineEdit is not supported by guiConnectors
+    inputFilePath: pathlib.Path
 
 
 #
@@ -99,7 +98,6 @@ class UberonTerminologyImporterWidget(ScriptedLoadableModuleWidget, VTKObservati
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.EndCloseEvent, self.onSceneEndClose)
 
         # Buttons
-        self.ui.uberonJsonPathLineEdit.validInputChanged.connect(self.updateParameterNodeFromGUI)
         self.ui.importTerminologyButton.clicked.connect(self.onImportTerminologyButton)
 
         # Make sure parameter node is initialized (needed for module reload)
@@ -118,7 +116,7 @@ class UberonTerminologyImporterWidget(ScriptedLoadableModuleWidget, VTKObservati
         """Called each time the user opens a different module."""
         # Do not react to parameter node changes (GUI will be updated when the user enters into the module)
         if self._parameterNode:
-            # self._parameterNode.disconnectGui(self._parameterNodeGuiTag)  #TODO: The wrapper cannot process the base class
+            self._parameterNode.disconnectGui(self._parameterNodeGuiTag)
             self._parameterNodeGuiTag = None
             self.removeObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._checkCanApply)
 
@@ -152,56 +150,25 @@ class UberonTerminologyImporterWidget(ScriptedLoadableModuleWidget, VTKObservati
         Observation is needed because when the parameter node is changed then the GUI must be updated immediately.
         """
         if self._parameterNode:
-            # self._parameterNode.disconnectGui(self._parameterNodeGuiTag)  #TODO: The wrapper cannot process the base class
-            self.removeObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self.updateGUIFromParameterNode)
+            self._parameterNode.disconnectGui(self._parameterNodeGuiTag)
+            self.removeObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._checkCanApply)
         self._parameterNode = inputParameterNode
         if self._parameterNode:
             # Note: in the .ui file, a Qt dynamic property called "SlicerParameterName" is set on each
             # ui element that needs connection.
-            # self._parameterNodeGuiTag = self._parameterNode.connectGui(self.ui)  #TODO: The wrapper cannot process the base class
-            self.addObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self.updateGUIFromParameterNode)
+            self._parameterNodeGuiTag = self._parameterNode.connectGui(self.ui)
+            self.addObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._checkCanApply)
 
         # Initial GUI update
-        self.updateGUIFromParameterNode()
+        self._checkCanApply()
 
     def _checkCanApply(self, caller=None, event=None) -> None:
-        inputFilePath = self._parameterNode.GetParameter(self.logic.parameterName_uberonJsonPath)
-        if self._parameterNode and inputFilePath:
+        if self._parameterNode and self._parameterNode.inputFilePath:
             self.ui.importTerminologyButton.toolTip = _("Import selected file as new terminology context")
             self.ui.importTerminologyButton.enabled = True
         else:
             self.ui.importTerminologyButton.toolTip = _("Select input file")
             self.ui.importTerminologyButton.enabled = False
-
-    def updateGUIFromParameterNode(self, caller=None, event=None):
-        """
-        This method is called whenever parameter node is changed.
-        The module GUI is updated to show the current state of the parameter node.
-        """
-        if self._parameterNode is None or self._updatingGUIFromParameterNode:
-            return
-
-        # Make sure GUI changes do not call updateParameterNodeFromGUI (it could cause infinite loop)
-        self._updatingGUIFromParameterNode = True
-
-        # Update node selectors and sliders
-        self.ui.uberonJsonPathLineEdit.currentPath = self._parameterNode.GetParameter(self.logic.parameterName_uberonJsonPath)
-
-        self._checkCanApply()
-
-        # All the GUI updates are done
-        self._updatingGUIFromParameterNode = False
-
-    def updateParameterNodeFromGUI(self, caller=None, event=None):
-        """
-        This method is called when the user makes any change in the GUI.
-        The changes are saved into the parameter node (so that they are restored when the scene is saved and loaded).
-        """
-        if self._parameterNode is None or self._updatingGUIFromParameterNode:
-            return
-        wasModified = self._parameterNode.StartModify()  # Modify all properties in a single batch
-        self._parameterNode.SetParameter(self.logic.parameterName_uberonJsonPath, self.ui.uberonJsonPathLineEdit.currentPath)
-        self._parameterNode.EndModify(wasModified)
 
     def onImportTerminologyButton(self) -> None:
         """Run processing when user clicks "Apply" button."""
@@ -228,7 +195,6 @@ class UberonTerminologyImporterLogic(ScriptedLoadableModuleLogic):
         ScriptedLoadableModuleLogic.__init__(self)
 
         # Constants
-        self.parameterName_uberonJsonPath = 'UberonJsonPath'
         self.containmentPredicateIDs = ['is_a', 'http://purl.obolibrary.org/obo/BFO_0000050']  # IsA and PartOf predicates
 
         # Loaded ontology variables
@@ -245,9 +211,11 @@ class UberonTerminologyImporterLogic(ScriptedLoadableModuleLogic):
         """
         if not parameterNode:
             raise ValueError("Input is invalid")
-        inputFilePath = parameterNode.GetParameter(self.parameterName_uberonJsonPath)
+        inputFilePath = parameterNode.inputFilePath
         if not os.path.exists(inputFilePath):
             raise ValueError(f"Selected input file {inputFilePath} does not exist")
+
+        startTime = time.time()
 
         with open(inputFilePath, 'r') as fh:
             self.loadedJson = json.loads(fh.read())
@@ -255,17 +223,12 @@ class UberonTerminologyImporterLogic(ScriptedLoadableModuleLogic):
 
         # Find root node (parent the direct children of which will be added as categories)
         rootNodeLabel = 'subdivision of skeleton'  #TODO: If we want to give more options to the user we can expose this on the UI
-        rootNodeListItem = self.findValueInFlatList(rootNodeLabel)
+        rootNodeListItem = self.findValueInFlatList(rootNodeLabel, 'lbl')
         rootNodeJsonElement = self.getJsonElementFromFlatElement(rootNodeListItem, 4)
         rootNodeID = rootNodeJsonElement['id']
 
         # Collect direct children (sub-categories) that are not leaves
-        childNodeIDs = []
-        for elem in self.loadedJsonFlatList:
-            if elem[2] == 'edges' and elem[4] == 'obj' and elem[5] == rootNodeID:
-                edge = self.getJsonElementFromFlatElement(elem, 4)
-                if edge['pred'] in self.containmentPredicateIDs:
-                    childNodeIDs.append(edge['sub'])
+        childNodeIDs = self.getChildrenForNode(rootNodeID)
 
         # Initialize terminology JSON dictionary to be filled with categories and types
         terminologyJson = {}
@@ -277,30 +240,54 @@ class UberonTerminologyImporterLogic(ScriptedLoadableModuleLogic):
         segmentationCodes["Category"] = categories
 
         # For each child, add terminology category for with the nodes inside as types in the category
-        usedNodeIDs = []
+        usedNodeIDs = set()
         for childNodeID in childNodeIDs:
-            # Get child JSON element
-            childListItem = self.findValueInFlatList(childNodeID)
+            # Get child Uberon JSON element
+            childListItem = self.findValueInFlatList(childNodeID, 'id')
             nodeJsonElement = self.getJsonElementFromFlatElement(childListItem, 4)
             childLabel = nodeJsonElement['lbl']
-            logging.info(f'Adding category for child with label {childLabel}')
+
+            # Get all children of the category node in Uberon
+            typeNodeIDsInCategory = self.getChildrenForNode(childNodeID, True)
+            logging.info(f'Adding category for child with label {childLabel}  (ID: {childNodeID}), children: {len(typeNodeIDsInCategory)}')
+            if len(typeNodeIDsInCategory) == 0:
+                continue  # If there are no children (category is a leaf), then leave it for later in "Other" category
 
             # Add new category
             newCategory = {}
             newCategory["CodeMeaning"] = childLabel
             newCategory["CodingSchemeDesignator"] = 'Uberon'  #TODO:
             newCategory["CodeValue"] = childNodeID
+            newCategory["showAnatomy"] = 'false'
             newTypes = []
             newCategory["Type"] = newTypes
+            categories.append(newCategory)
 
-            # Get all children of the category node in Uberon
-            #TODO:
+            for typeNodeID in typeNodeIDsInCategory:
+                # Get type Uberon JSON element
+                typeListItem = self.findValueInFlatList(typeNodeID, 'id')
+                typeJsonElement = self.getJsonElementFromFlatElement(typeListItem, 4)
+                typeLabel = typeJsonElement['lbl']
+                # Add new type in current category
+                newType = {}
+                newType["CodeMeaning"] = typeLabel
+                newType["CodingSchemeDesignator"] = 'Uberon'  #TODO:
+                newType["CodeValue"] = typeNodeID
+                newType["recommendedDisplayRGBValue"] = [128, 128, 128]  #TODO: Generate color
+                newTypes.append(newType)
+                usedNodeIDs.add(typeNodeID)
 
         # Collect all nodes that are not added yet
         #TODO:
 
         # Add terminology category "Other" with these nodes as types
         #TODO:
+
+        # Write out JSON file
+        with open('d:/test.json', 'w') as fh:  #TODO: To temporary folder and then import
+            json.dump(terminologyJson, fh)
+
+        logging.info(f'Importing ontology completed in {time.time()-startTime:.2f} seconds')
 
     @staticmethod
     def flatListFromDict(dictionary, previous=None):
@@ -323,7 +310,7 @@ class UberonTerminologyImporterLogic(ScriptedLoadableModuleLogic):
         else:
             yield previous + [dictionary]
 
-    def findValueInFlatList(self, value):
+    def findValueInFlatList(self, value, tag=None):
         """
         Find item in flat list with the last value equal to the given value.
         :param str value: Value to look for. E.g. 'subdivision of skeletal system'
@@ -332,9 +319,12 @@ class UberonTerminologyImporterLogic(ScriptedLoadableModuleLogic):
         foundNodeFlatListElem = None
         for elem in self.loadedJsonFlatList:
             if elem[-1] == value:
-                foundNodeFlatListElem = elem
-                # logging.info(f'Found element {value}, node index {foundNodeFlatListElem[4]}')
-                break
+                if tag is None or elem[-2] == tag:
+                    foundNodeFlatListElem = elem
+                    # logging.info(f'Found element {value}, node index {foundNodeFlatListElem[4]}')
+                    break
+                else:
+                    logging.error(f'ZZZ Found but discarded:\n{elem}')
         if foundNodeFlatListElem is None:
             raise RuntimeError(f'Failed to find item with last value {value} in the ontology')
         return foundNodeFlatListElem
@@ -359,12 +349,29 @@ class UberonTerminologyImporterLogic(ScriptedLoadableModuleLogic):
             currentJson = currentJson[elem]
         return currentJson
 
-    def getChildrenForNode(self, uberonNodeID, recursive=True):
+    def getChildrenForNode(self, uberonNodeID, recursive=False):
         """
         Get children of the specified uberon node in the loaded uberon dictionary.
         :param string uberonNodeID: Uberon node ID, e.g. "http://purl.obolibrary.org/obo/UBERON_0001739"
         """
-        pass  #TODO:
+        directChildNodeIDs = set()
+        for elem in self.loadedJsonFlatList:
+            if elem[2] == 'edges' and elem[4] == 'obj' and elem[5] == uberonNodeID:
+                edge = self.getJsonElementFromFlatElement(elem, 4)
+                if edge['pred'] in self.containmentPredicateIDs:
+                    # logging.error(f'ZZZ Child with ID found: {edge["sub"]} (pred: {edge["pred"]})')
+                    directChildNodeIDs.add(edge['sub'])
+        if not recursive:
+            return directChildNodeIDs
+        # Handle request for recursive search
+        # allChildNodeIDs = directChildNodeIDs.copy()
+        allChildNodeIDs = set()
+        for childNodeID in directChildNodeIDs:
+            if childNodeID in allChildNodeIDs:
+                continue  # Skip circular connections
+            allChildNodeIDs = allChildNodeIDs.union(self.getChildrenForNode(childNodeID, True))
+        allChildNodeIDs = allChildNodeIDs.union(directChildNodeIDs)
+        return allChildNodeIDs
 
 
 #
