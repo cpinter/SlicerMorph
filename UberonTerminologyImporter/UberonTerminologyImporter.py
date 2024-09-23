@@ -23,8 +23,6 @@ from slicer import vtkMRMLScalarVolumeNode
 #
 # UberonTerminologyImporter
 #
-
-
 class UberonTerminologyImporter(ScriptedLoadableModule):
     """Uses ScriptedLoadableModule base class, available at:
     https://github.com/Slicer/Slicer/blob/main/Base/Python/slicer/ScriptedLoadableModule.py
@@ -190,6 +188,11 @@ class UberonTerminologyImporterLogic(ScriptedLoadableModuleLogic):
     https://github.com/Slicer/Slicer/blob/main/Base/Python/slicer/ScriptedLoadableModule.py
     """
 
+    COLORS_RGB = [(145, 235, 120), (255, 249, 87), (236, 148, 208), (250, 170, 50), (87, 197, 211),
+        (240, 77, 115), (65, 36, 128), (120, 82, 204), (101, 56, 199), (218, 201, 255), (41, 95, 204),
+        (103, 87, 138), (213, 155, 255), (204, 41, 150), (61, 219, 190), (16, 57, 204), (116, 217, 69),
+        (167, 171, 121), (255, 207, 218), (219, 46, 46), (58, 149, 252), (237, 217, 114)]
+
     def __init__(self) -> None:
         """Called when the logic class is instantiated. Can be used for initializing member variables."""
         ScriptedLoadableModuleLogic.__init__(self)
@@ -232,7 +235,7 @@ class UberonTerminologyImporterLogic(ScriptedLoadableModuleLogic):
 
         # Initialize terminology JSON dictionary to be filled with categories and types
         terminologyJson = {}
-        terminologyJson["SegmentationCategoryTypeContextName"] = rootNodeLabel
+        terminologyJson["SegmentationCategoryTypeContextName"] = f'UBERON {rootNodeLabel}'
         terminologyJson["@schema"] = "https://raw.githubusercontent.com/qiicr/dcmqi/master/doc/schemas/segment-context-schema.json#"
         segmentationCodes = {}
         terminologyJson["SegmentationCodes"] = segmentationCodes
@@ -263,7 +266,7 @@ class UberonTerminologyImporterLogic(ScriptedLoadableModuleLogic):
             newCategory["Type"] = newTypes
             categories.append(newCategory)
 
-            for typeNodeID in typeNodeIDsInCategory:
+            for idx, typeNodeID in enumerate(typeNodeIDsInCategory):
                 # Get type Uberon JSON element
                 typeListItem = self.findValueInFlatList(typeNodeID, 'id')
                 typeJsonElement = self.getJsonElementFromFlatElement(typeListItem, 4)
@@ -273,7 +276,7 @@ class UberonTerminologyImporterLogic(ScriptedLoadableModuleLogic):
                 newType["CodeMeaning"] = typeLabel
                 newType["CodingSchemeDesignator"] = 'Uberon'  #TODO:
                 newType["CodeValue"] = typeNodeID
-                newType["recommendedDisplayRGBValue"] = [128, 128, 128]  #TODO: Generate color
+                newType["recommendedDisplayRGBValue"] = self.COLORS_RGB[idx % len(self.COLORS_RGB)]
                 newTypes.append(newType)
                 usedNodeIDs.add(typeNodeID)
 
@@ -323,8 +326,6 @@ class UberonTerminologyImporterLogic(ScriptedLoadableModuleLogic):
                     foundNodeFlatListElem = elem
                     # logging.info(f'Found element {value}, node index {foundNodeFlatListElem[4]}')
                     break
-                else:
-                    logging.error(f'ZZZ Found but discarded:\n{elem}')
         if foundNodeFlatListElem is None:
             raise RuntimeError(f'Failed to find item with last value {value} in the ontology')
         return foundNodeFlatListElem
@@ -359,12 +360,10 @@ class UberonTerminologyImporterLogic(ScriptedLoadableModuleLogic):
             if elem[2] == 'edges' and elem[4] == 'obj' and elem[5] == uberonNodeID:
                 edge = self.getJsonElementFromFlatElement(elem, 4)
                 if edge['pred'] in self.containmentPredicateIDs:
-                    # logging.error(f'ZZZ Child with ID found: {edge["sub"]} (pred: {edge["pred"]})')
                     directChildNodeIDs.add(edge['sub'])
         if not recursive:
             return directChildNodeIDs
         # Handle request for recursive search
-        # allChildNodeIDs = directChildNodeIDs.copy()
         allChildNodeIDs = set()
         for childNodeID in directChildNodeIDs:
             if childNodeID in allChildNodeIDs:
