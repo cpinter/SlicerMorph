@@ -191,7 +191,7 @@ class UberonTerminologyImporterLogic(ScriptedLoadableModuleLogic):
     COLORS_RGB = [(145, 235, 120), (255, 249, 87), (236, 148, 208), (250, 170, 50), (87, 197, 211),
         (240, 77, 115), (65, 36, 128), (120, 82, 204), (101, 56, 199), (218, 201, 255), (41, 95, 204),
         (103, 87, 138), (213, 155, 255), (204, 41, 150), (61, 219, 190), (16, 57, 204), (116, 217, 69),
-        (167, 171, 121), (255, 207, 218), (219, 46, 46), (58, 149, 252), (237, 217, 114)]
+        (167, 171, 121), (255, 207, 218), (219, 46, 46), (58, 149, 252), (237, 217, 114)]  # From https://github.com/Imageomics/slicerMorph_JSON_generator/blob/main/test_data/terminology_test.csv
 
     def __init__(self) -> None:
         """Called when the logic class is instantiated. Can be used for initializing member variables."""
@@ -264,7 +264,7 @@ class UberonTerminologyImporterLogic(ScriptedLoadableModuleLogic):
             newTypes = []
             categories.append(newCategory)
 
-            for idx, typeNodeID in enumerate(typeNodeIDsInCategory):
+            for typeNodeID in typeNodeIDsInCategory:
                 # Get type Uberon JSON element
                 typeListItem = self.findValueInFlatList(typeNodeID, 'id')
                 typeJsonElement = self.getJsonElementFromFlatElement(typeListItem, 4)
@@ -274,13 +274,15 @@ class UberonTerminologyImporterLogic(ScriptedLoadableModuleLogic):
                 newType["CodeMeaning"] = typeLabel
                 newType["CodingSchemeDesignator"] = 'Uberon'  #TODO:
                 newType["CodeValue"] = typeNodeID
-                newType["recommendedDisplayRGBValue"] = self.COLORS_RGB[idx % len(self.COLORS_RGB)]
                 newTypes.append(newType)
                 usedNodeIDs.add(typeNodeID)
 
             # Sort types alphabetically
             newTypes = sorted(newTypes, key=lambda d: d['CodeMeaning'].lower())
             newCategory["Type"] = newTypes
+            # Set colors in the new alphabetic order (so that they do not appear random)
+            for idx, type in enumerate(newTypes):
+                type["recommendedDisplayRGBValue"] = self.COLORS_RGB[idx % len(self.COLORS_RGB)]
 
         # Sort categories alphabetically
         categories = sorted(categories, key=lambda d: d['CodeMeaning'].lower())
