@@ -240,7 +240,6 @@ class UberonTerminologyImporterLogic(ScriptedLoadableModuleLogic):
         segmentationCodes = {}
         terminologyJson["SegmentationCodes"] = segmentationCodes
         categories = []
-        segmentationCodes["Category"] = categories
 
         # For each child, add terminology category for with the nodes inside as types in the category
         usedNodeIDs = set()
@@ -263,7 +262,6 @@ class UberonTerminologyImporterLogic(ScriptedLoadableModuleLogic):
             newCategory["CodeValue"] = childNodeID
             newCategory["showAnatomy"] = 'false'
             newTypes = []
-            newCategory["Type"] = newTypes
             categories.append(newCategory)
 
             for idx, typeNodeID in enumerate(typeNodeIDsInCategory):
@@ -279,6 +277,14 @@ class UberonTerminologyImporterLogic(ScriptedLoadableModuleLogic):
                 newType["recommendedDisplayRGBValue"] = self.COLORS_RGB[idx % len(self.COLORS_RGB)]
                 newTypes.append(newType)
                 usedNodeIDs.add(typeNodeID)
+
+            # Sort types alphabetically
+            newTypes = sorted(newTypes, key=lambda d: d['CodeMeaning'].lower())
+            newCategory["Type"] = newTypes
+
+        # Sort categories alphabetically
+        categories = sorted(categories, key=lambda d: d['CodeMeaning'].lower())
+        segmentationCodes["Category"] = categories
 
         # Collect all nodes that are not added yet
         #TODO:
